@@ -1,1 +1,1 @@
-console.log('Commodify CRM loaded');
+console.log('Commodify Full UI Loaded');
