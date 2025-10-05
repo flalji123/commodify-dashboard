@@ -1,451 +1,304 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Commodify PM</title>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Commodify PM</title>
+<link rel="stylesheet" href="style.css"/>
+<!-- IMPORTANT: keep this include -->
+<script src="config.js"></script>
 
-  <!-- styles and API config -->
-  <link rel="stylesheet" href="style.css"/>
-  <script src="config.js"></script>
+<script>
+/* ====== Basics & Router ====== */
+const API = window.API_BASE;
+function headers(auth=true){ const h={"Content-Type":"application/json"}; const t=localStorage.getItem("token"); if(auth&&t) h.Authorization="Bearer "+t; return h; }
+function http(p,m="GET",b=null,auth=true){
+  return fetch(API+p,{method:m,headers:headers(auth),body:b?JSON.stringify(b):null})
+    .then(async r=>{ if(!r.ok) throw new Error(await r.text()); return r.json();});
+}
+function toast(msg){ const n=document.getElementById("notice"); n.textContent=msg; n.classList.remove("hidden"); setTimeout(()=>n.classList.add("hidden"),3000); }
+function logout(){ localStorage.removeItem("token"); location.hash="#/login"; }
 
-  <script>
-    // =========================
-    // Global + HTTP helpers
-    // =========================
-    const API = window.API_BASE; // e.g. https://commodify-backend-1.onrender.com
+function route(){
+  const raw = location.hash.replace("#/",""); const page = raw || "projects";
+  document.querySelectorAll("[data-page]").forEach(x=>x.classList.add("hidden"));
+  if (page.startsWith("project-")) openProject(page.split("-")[1]);
+  else {
+    const el = document.querySelector(`[data-page="${page}"]`); if (el) el.classList.remove("hidden");
+    if (page==="projects") loadProjects();
+    if (page==="crm")      loadCompanies();
+  }
+  const current = page.startsWith("project-") ? "projects" : page;
+  document.querySelectorAll(".nav a").forEach(a=>a.classList.toggle("active", a.getAttribute("href")==="#/"+current));
+}
+addEventListener("hashchange", route);
+addEventListener("load", route);
 
-    function headers(auth = true){
-      const h = { "Content-Type": "application/json" };
-      const t = localStorage.getItem("token");
-      if (auth && t) h.Authorization = "Bearer " + t;
-      return h;
-    }
+/* ====== Auth ====== */
+async function doRegister(e){e.preventDefault();
+  const r = await http("/auth/register","POST",{email:e.target.email.value,password:e.target.password.value},false);
+  localStorage.setItem("token", r.access_token); location.hash="#/projects";
+}
+async function doLogin(e){e.preventDefault();
+  const r = await http("/auth/login","POST",{email:e.target.email.value,password:e.target.password.value},false);
+  localStorage.setItem("token", r.access_token); location.hash="#/projects";
+}
 
-    function http(path, method = "GET", body = null, auth = true){
-      return fetch(API + path, {
-        method, headers: headers(auth), body: body ? JSON.stringify(body) : null
-      }).then(async r => {
-        if (!r.ok) {
-          const msg = await r.text();
-          throw new Error(msg || `HTTP ${r.status}`);
-        }
-        return r.json();
-      });
-    }
+/* ====== CRM (basic) ====== */
+async function loadCompanies(){
+  let rows=[]; try{ rows=await http("/companies"); }catch{ toast("Please log in"); location.hash="#/login"; return; }
+  const tb = document.getElementById("crm-rows"); tb.innerHTML="";
+  rows.forEach(c=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${c.name}</td><td>${c.country||""}</td><td><button class="btn danger" onclick="delCompany(${c.id})">Delete</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+async function addCompany(e){e.preventDefault(); await http("/companies","POST",{name:e.target.name.value,country:e.target.country.value}); e.target.reset(); loadCompanies(); }
+async function delCompany(id){ await http(`/companies/${id}`,"DELETE"); loadCompanies(); }
 
-    function toast(msg){
-      const n = document.getElementById("notice");
-      if (!n) return;
-      n.textContent = msg;
-      n.classList.remove("hidden");
-      setTimeout(() => n.classList.add("hidden"), 3000);
-    }
+/* ====== Projects list ====== */
+async function loadProjects(){
+  const list = document.getElementById("projects-list"); list.innerHTML="";
+  let rows=[]; try{ rows=await http("/projects"); }catch{ toast("Please log in"); location.hash="#/login"; return; }
+  if (!rows.length){ const d=document.createElement("div"); d.className="card"; d.innerHTML="<div class='muted'>No projects yet. Use the form above.</div>"; list.appendChild(d); return; }
+  rows.forEach(p=>{
+    const div=document.createElement("div"); div.className="card";
+    div.innerHTML = `
+      <div class="flex">
+        <div><b>${p.title}</b><div class="small">${p.client||""}</div></div>
+        <span class="right tag">${p.status}</span>
+      </div>
+      <div class="small" style="margin-top:6px">${p.start_date||"—"} → ${p.end_date||"—"} • Priority: ${p.priority}</div>
+      <div style="margin-top:10px">
+        <button class="btn" onclick="location.hash='#/project-${p.id}'">Open</button>
+        <button class="btn muted" style="margin-left:6px" onclick="editProject(${p.id})">Edit</button>
+        <button class="btn danger" style="margin-left:6px" onclick="deleteProject(${p.id})">Delete</button>
+      </div>`;
+    list.appendChild(div);
+  });
+}
+async function createProject(e){e.preventDefault();
+  const f=e.target;
+  await http("/projects","POST",{
+    title:f.title.value, description:f.description.value, client:f.client.value,
+    status:f.status.value, priority:f.priority.value, start_date:f.start_date.value, end_date:f.end_date.value
+  });
+  f.reset(); toast("Project created"); loadProjects();
+}
+async function editProject(id){
+  const p=await http(`/projects/${id}`); const f=document.getElementById("project-edit-form");
+  f.pid.value=id; f.title.value=p.title; f.description.value=p.description||""; f.client.value=p.client||"";
+  f.status.value=p.status; f.priority.value=p.priority; f.start_date.value=p.start_date||""; f.end_date.value=p.end_date||"";
+  document.getElementById("edit-modal").classList.remove("hidden");
+}
+async function submitEditProject(e){e.preventDefault();
+  const f=e.target;
+  await http(`/projects/${f.pid.value}`,"PUT",{
+    title:f.title.value, description:f.description.value, client:f.client.value,
+    status:f.status.value, priority:f.priority.value, start_date:f.start_date.value, end_date:f.end_date.value
+  });
+  document.getElementById("edit-modal").classList.add("hidden"); toast("Project updated"); loadProjects();
+}
+async function deleteProject(id){ if(!confirm("Delete project?")) return; await http(`/projects/${id}`,"DELETE"); toast("Project deleted"); loadProjects(); }
 
-    function logout(){
-      localStorage.removeItem("token");
-      toast("Logged out");
-      location.hash = "#/login";
-    }
+/* ====== Project workspace ====== */
+let currentProject=0, taskView="list", allTasks=[];
+function switchTab(t){
+  document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active"));
+  document.querySelectorAll(".pane").forEach(el=>el.classList.add("hidden"));
+  document.getElementById("tab-"+t).classList.add("active");
+  document.getElementById("pane-"+t).classList.remove("hidden");
+  if (t==="tasks") renderTasks();
+  if (t==="activity") loadActivity();
+}
+async function openProject(pid){
+  currentProject=+pid;
+  let p; try{ p=await http(`/projects/${pid}`);}catch{ toast("Please log in"); location.hash="#/login"; return; }
+  document.querySelectorAll("[data-page]").forEach(x=>x.classList.add("hidden"));
+  document.querySelector('[data-page="project"]').classList.remove("hidden");
+  document.getElementById("proj-title").textContent=p.title;
+  document.getElementById("proj-meta").textContent=`${p.client||"No client"} • ${p.status} • ${p.priority}`;
+  switchTab("overview");
+  await loadTasks(); loadTeam(); loadFiles(); loadActivity();
+}
 
-    // =========================
-    // Router
-    // =========================
-    function route(){
-      // Supports: #/projects, #/crm, #/login, #/register, #/project-<id>
-      const raw  = location.hash.replace("#/", "");
-      const page = raw || "projects";
+/* ====== Tasks (filters + list + board + subtasks + assignees + gantt) ====== */
+function readFilters(){ return {
+  q:document.getElementById("f-q").value.trim().toLowerCase(),
+  status:document.getElementById("f-status").value,
+  priority:document.getElementById("f-priority").value,
+  assignee:document.getElementById("f-assignee").value
+};}
+function applyFilters(rows){
+  const f=readFilters();
+  return rows.filter(t=>{
+    if (f.q && !(`${t.title||""} ${t.description||""}`.toLowerCase().includes(f.q))) return false;
+    if (f.status!=="any" && t.status!==f.status) return false;
+    if (f.priority!=="any" && t.priority!==f.priority) return false;
+    if (f.assignee && String(t.assignee||"")!==f.assignee) return false;
+    return true;
+  });
+}
+async function loadTasks(){ allTasks = await http(`/projects/${currentProject}/tasks`); renderTasks(); }
+function setView(v){ taskView=v; document.querySelectorAll(".view-switch .btn").forEach(b=>b.classList.toggle("active",b.dataset.v===v)); renderTasks(); }
+function renderTasks(){
+  const rows = applyFilters(allTasks);
+  document.getElementById("kpi-open").textContent = rows.filter(x=>x.status!=="done").length;
+  document.getElementById("kpi-total").textContent = rows.length;
+  if (taskView==="list") renderTaskList(rows); else renderBoard(rows);
+  renderGantt(rows);
+}
 
-      // hide all pages
-      document.querySelectorAll("[data-page]").forEach(el => el.classList.add("hidden"));
+/* List with subtasks tree */
+function buildTree(rows){
+  const byId = Object.fromEntries(rows.map(r=>[r.id,{...r,children:[]}]));
+  const roots=[]; rows.forEach(r=>{ if(r.parent_id && byId[r.parent_id]) byId[r.parent_id].children.push(byId[r.id]); else roots.push(byId[r.id]); });
+  return roots;
+}
+function renderTaskList(rows){
+  const tb=document.getElementById("tasks-rows"); tb.innerHTML="";
+  const roots=buildTree(rows);
+  const draw=(n,depth=0)=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML = `
+      <td style="padding-left:${depth*18}px"><b>${n.title}</b><br><span class="small">${n.description||""}</span>
+        <div class="small">Assignee: ${n.assignee ?? "—"}</div></td>
+      <td>${n.status}</td>
+      <td><div class="progress"><i style="width:${n.progress||0}%"></i></div><span class="small">${n.progress||0}%</span></td>
+      <td>${n.priority}</td><td>${n.due_date||""}</td>
+      <td>
+        <button class="btn" onclick="editTask(${n.id})">Edit</button>
+        <button class="btn" style="margin-left:6px" onclick="openComments(${n.id})">Comments</button>
+        <button class="btn alt" style="margin-left:6px" onclick="openSubtask(${n.id})">+ Subtask</button>
+        <button class="btn danger" style="margin-left:6px" onclick="deleteTask(${n.id})">Delete</button>
+      </td>`;
+    tb.appendChild(tr);
+    n.children.forEach(c=>draw(c,depth+1));
+  };
+  roots.forEach(n=>draw(n));
+}
 
-      if (page.startsWith("project-")){
-        const pid = page.split("-")[1];
-        openProject(pid);     // <= defined later
-      } else {
-        const el = document.querySelector(`[data-page="${page}"]`);
-        if (el) el.classList.remove("hidden");
-        if (page === "projects") loadProjects(); // <= defined later
-        if (page === "crm")      loadCompanies(); // <= defined later
-      }
+/* Board (Kanban) with drag & drop status change */
+function renderBoard(rows){
+  const mount=document.getElementById("board"); mount.innerHTML="";
+  const cols={todo:[],doing:[],done:[]}; rows.forEach(t=> (cols[t.status]||cols.todo).push(t));
+  ["todo","doing","done"].forEach(st=>{
+    const col=document.createElement("div"); col.className="column"; col.dataset.status=st;
+    col.innerHTML = `<div class="khead"><span class="kstatus">${st.toUpperCase()}</span><span class="tag">${cols[st].length}</span></div>`;
+    col.ondragover=e=>e.preventDefault();
+    col.ondrop=async e=>{ const id=e.dataTransfer.getData("text"); await http(`/tasks/${id}`,"PUT",{status:st}); await loadTasks(); };
+    cols[st].forEach(t=>{
+      const card=document.createElement("div"); card.className="kcard"; card.draggable=true;
+      card.ondragstart=e=>e.dataTransfer.setData("text",t.id);
+      card.innerHTML = `
+        <div><b>${t.title}</b> <span class="assignee">${t.assignee??"—"}</span></div>
+        <div class="small">${t.description||""}</div>
+        <div class="small warn">Due: ${t.due_date||"—"} • ${t.progress||0}%</div>
+        <div style="margin-top:6px">
+          <button class="btn" onclick="editTask(${t.id})">Edit</button>
+          <button class="btn danger" onclick="deleteTask(${t.id})">Delete</button>
+        </div>`;
+      col.appendChild(card);
+    });
+    mount.appendChild(col);
+  });
+}
 
-      // highlight sidebar (keep "Projects" active when viewing a specific project)
-      const current = page.startsWith("project-") ? "projects" : page;
-      document.querySelectorAll(".nav a").forEach(a => {
-        a.classList.toggle("active", a.getAttribute("href") === "#/" + current);
-      });
-    }
-    window.addEventListener("hashchange", route);
-    window.addEventListener("load", route);
+/* Comments */
+async function openComments(tid){
+  document.getElementById("comments-panel").classList.remove("hidden");
+  document.getElementById("comment-form").tid.value=tid;
+  const rows = await http(`/tasks/${tid}/comments`);
+  const box = document.getElementById("comments"); box.innerHTML="";
+  rows.forEach(c=>{ const d=document.createElement("div"); d.className="card"; d.innerHTML=`<div>${c.body}</div><div class="small">comment #${c.id}</div>`; box.appendChild(d); });
+  switchTab("tasks");
+}
 
-    // =========================
-    // Auth
-    // =========================
-    async function doRegister(e){
-      e.preventDefault();
-      const r = await http("/auth/register","POST",{
-        email: e.target.email.value,
-        password: e.target.password.value
-      }, false);
-      localStorage.setItem("token", r.access_token);
-      location.hash = "#/projects";
-    }
+/* Create / Edit / Delete tasks */
+async function addTask(e){e.preventDefault();
+  const f=e.target;
+  await http(`/projects/${currentProject}/tasks`,"POST",{
+    title:f.title.value, description:f.description.value, status:f.status.value, priority:f.priority.value,
+    due_date:f.due_date.value, progress:+f.progress.value||0,
+    assignee: f.assignee.value?+f.assignee.value:null, parent_id: null
+  });
+  f.reset(); toast("Task added"); loadTasks();
+}
+function openSubtask(parentId){ const f=document.getElementById("subtask-form"); f.parent_id.value=parentId; document.getElementById("subtask-modal").classList.remove("hidden"); }
+async function submitSubtask(e){e.preventDefault();
+  const f=e.target;
+  await http(`/projects/${currentProject}/tasks`,"POST",{ title:f.title.value, status:"todo", priority:"Normal", progress:0, parent_id:+f.parent_id.value });
+  document.getElementById("subtask-modal").classList.add("hidden"); f.reset(); loadTasks();
+}
+async function editTask(id){
+  const t=await http(`/tasks/${id}`);
+  const f=document.getElementById("task-edit-form");
+  f.tid.value=id; f.title.value=t.title; f.description.value=t.description||"";
+  f.status.value=t.status||"todo"; f.priority.value=t.priority||"Normal";
+  f.due_date.value=t.due_date||""; f.progress.value=t.progress||0; f.assignee.value=t.assignee||"";
+  document.getElementById("task-modal").classList.remove("hidden");
+}
+async function submitEditTask(e){e.preventDefault();
+  const f=e.target;
+  await http(`/tasks/${f.tid.value}`,"PUT",{
+    title:f.title.value, description:f.description.value, status:f.status.value, priority:f.priority.value,
+    due_date:f.due_date.value, progress:+f.progress.value||0, assignee: f.assignee.value?+f.assignee.value:null
+  });
+  document.getElementById("task-modal").classList.add("hidden"); toast("Task updated"); loadTasks();
+}
+async function deleteTask(id){ if(!confirm("Delete task?")) return; await http(`/tasks/${id}`,"DELETE"); loadTasks(); }
 
-    async function doLogin(e){
-      e.preventDefault();
-      const r = await http("/auth/login","POST",{
-        email: e.target.email.value,
-        password: e.target.password.value
-      }, false);
-      localStorage.setItem("token", r.access_token);
-      location.hash = "#/projects";
-    }
+/* Team */
+async function loadTeam(){
+  const rows=await http(`/projects/${currentProject}/team`);
+  const list=document.getElementById("team-list"); list.innerHTML="";
+  rows.forEach(m=>{
+    const d=document.createElement("div"); d.className="card";
+    d.innerHTML=`<div class="flex"><div>User #${m.user_id}</div><span class="tag">${m.role}</span><span class="right"></span><button class="btn danger" onclick="removeMember(${m.id})">Remove</button></div>`;
+    list.appendChild(d);
+  });
+}
+async function addMember(e){e.preventDefault(); const f=e.target; await http(`/projects/${currentProject}/team`,"POST",{user_id:+f.user_id.value,role:f.role.value}); f.reset(); loadTeam(); }
+async function removeMember(id){ await http(`/projects/${currentProject}/team/${id}`,"DELETE"); loadTeam(); }
 
-    // =========================
-    // CRM (basic)
-    // =========================
-    async function loadCompanies(){
-      let rows = [];
-      try { rows = await http("/companies"); }
-      catch { toast("Please log in first"); location.hash="#/login"; return; }
+/* Files */
+async function loadFiles(){
+  const tb=document.getElementById("files-rows"); tb.innerHTML="";
+  const rows=await http(`/projects/${currentProject}/files`);
+  rows.forEach(f=>{ const tr=document.createElement("tr"); tr.innerHTML=`<td>${f.filename}</td><td>${f.size} bytes</td>`; tb.appendChild(tr); });
+}
+async function uploadFile(e){e.preventDefault();
+  const fd=new FormData(e.target); const token=localStorage.getItem("token");
+  const r=await fetch(API+`/projects/${currentProject}/files`,{method:"POST",headers:token?{Authorization:"Bearer "+token}:{},body:fd});
+  if(!r.ok){ alert(await r.text()); return; } toast("File uploaded"); loadFiles();
+}
 
-      const tb = document.getElementById("crm-rows");
-      tb.innerHTML = "";
-      rows.forEach(c => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${c.name}</td>
-          <td>${c.country || ""}</td>
-          <td><button class="btn danger" onclick="delCompany(${c.id})">Delete</button></td>`;
-        tb.appendChild(tr);
-      });
-    }
-    async function addCompany(e){
-      e.preventDefault();
-      await http("/companies","POST",{
-        name: e.target.name.value, country: e.target.country.value
-      });
-      e.target.reset();
-      loadCompanies();
-    }
-    async function delCompany(id){
-      await http(`/companies/${id}`,"DELETE");
-      loadCompanies();
-    }
+/* Activity */
+async function loadActivity(){
+  const rows=await http("/activity"); const box=document.getElementById("activity"); box.innerHTML="";
+  rows.forEach(a=>{ const d=document.createElement("div"); d.className="card"; d.innerHTML=`<div>${a.verb}</div><div class="small">${a.object_type} #${a.object_id} • project ${a.project_id||"—"}</div>`; box.appendChild(d);});
+}
 
-    // =========================
-    // Projects (list + CRUD)
-    // =========================
-    async function loadProjects(){
-      const list = document.getElementById("projects-list");
-      list.innerHTML = "";
-
-      let rows = [];
-      try { rows = await http("/projects"); }
-      catch { toast("Please log in first"); location.hash="#/login"; return; }
-
-      if (!rows.length){
-        const empty = document.createElement("div");
-        empty.className = "card";
-        empty.innerHTML  = "<div class='muted'>No projects yet. Use the form above to add one.</div>";
-        list.appendChild(empty);
-        return;
-      }
-
-      rows.forEach(p => {
-        const div = document.createElement("div");
-        div.className = "card";
-        div.innerHTML = `
-          <div class="flex">
-            <div>
-              <b>${p.title}</b>
-              <div class="small">${p.client || ""}</div>
-            </div>
-            <span class="right tag">${p.status}</span>
-          </div>
-          <div class="small" style="margin-top:6px">
-            ${p.start_date || "—"} → ${p.end_date || "—"} • Priority: ${p.priority}
-          </div>
-          <div style="margin-top:10px">
-            <button class="btn" onclick="location.hash='#/project-${p.id}'">Open</button>
-            <button class="btn muted" style="margin-left:6px" onclick="editProject(${p.id})">Edit</button>
-            <button class="btn danger" style="margin-left:6px" onclick="deleteProject(${p.id})">Delete</button>
-          </div>`;
-        list.appendChild(div);
-      });
-    }
-
-    async function createProject(e){
-      e.preventDefault();
-      const f = e.target;
-      await http("/projects","POST",{
-        title: f.title.value,
-        description: f.description.value,
-        client: f.client.value,
-        status: f.status.value,
-        priority: f.priority.value,
-        start_date: f.start_date.value,
-        end_date: f.end_date.value
-      });
-      f.reset();
-      toast("Project created");
-      loadProjects();
-    }
-
-    async function editProject(id){
-      const p = await http(`/projects/${id}`);
-      const f = document.getElementById("project-edit-form");
-      f.pid.value = id;
-      f.title.value = p.title;
-      f.description.value = p.description || "";
-      f.client.value = p.client || "";
-      f.status.value = p.status;
-      f.priority.value = p.priority;
-      f.start_date.value = p.start_date || "";
-      f.end_date.value = p.end_date || "";
-      document.getElementById("edit-modal").classList.remove("hidden");
-    }
-
-    async function submitEditProject(e){
-      e.preventDefault();
-      const f = e.target;
-      await http(`/projects/${f.pid.value}`,"PUT",{
-        title: f.title.value,
-        description: f.description.value,
-        client: f.client.value,
-        status: f.status.value,
-        priority: f.priority.value,
-        start_date: f.start_date.value,
-        end_date: f.end_date.value
-      });
-      document.getElementById("edit-modal").classList.add("hidden");
-      toast("Project updated");
-      loadProjects();
-    }
-
-    async function deleteProject(id){
-      if (!confirm("Delete project?")) return;
-      await http(`/projects/${id}`,"DELETE");
-      toast("Project deleted");
-      loadProjects();
-    }
-
-    // =========================
-    // Project workspace
-    // =========================
-    let currentProject = 0;
-
-    async function openProject(pid){
-      currentProject = +pid;
-
-      // Auth guard + fetch data
-      let p;
-      try { p = await http(`/projects/${pid}`); }
-      catch { toast("Please log in first"); location.hash="#/login"; return; }
-
-      // switch the visible page
-      document.querySelectorAll("[data-page]").forEach(el => el.classList.add("hidden"));
-      document.querySelector('[data-page="project"]').classList.remove("hidden");
-
-      // header
-      document.getElementById("proj-title").textContent = p.title;
-      document.getElementById("proj-meta").textContent =
-        `${p.client || "No client"} • ${p.status} • ${p.priority}`;
-
-      // default tab + data loads
-      switchTab("overview");
-      loadTasks();
-      loadTeam();
-      loadFiles();
-      loadActivity();
-    }
-
-    function switchTab(t){
-      document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
-      document.querySelectorAll(".pane").forEach(el => el.classList.add("hidden"));
-      document.getElementById("tab-" + t).classList.add("active");
-      document.getElementById("pane-" + t).classList.remove("hidden");
-    }
-
-    // ---------- Tasks ----------
-    async function loadTasks(){
-      const tb = document.getElementById("tasks-rows");
-      tb.innerHTML = "";
-      const rows = await http(`/projects/${currentProject}/tasks`);
-      let open = 0;
-      rows.forEach(t => {
-        if (t.status !== "done") open++;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><b>${t.title}</b><br><span class="small">${t.description || ""}</span></td>
-          <td>${t.status}</td>
-          <td><div class="progress"><i style="width:${t.progress || 0}%"></i></div><span class="small">${t.progress || 0}%</span></td>
-          <td>${t.priority}</td>
-          <td>${t.due_date || ""}</td>
-          <td>
-            <button class="btn" onclick="editTask(${t.id})">Edit</button>
-            <button class="btn" style="margin-left:6px" onclick="openComments(${t.id})">Comments</button>
-            <button class="btn danger" style="margin-left:6px" onclick="deleteTask(${t.id})">Delete</button>
-          </td>`;
-        tb.appendChild(tr);
-      });
-      document.getElementById("kpi-open").textContent  = open;
-      document.getElementById("kpi-total").textContent = rows.length;
-    }
-
-    async function addTask(e){
-      e.preventDefault();
-      const f = e.target;
-      await http(`/projects/${currentProject}/tasks`,"POST",{
-        title: f.title.value,
-        description: f.description.value,
-        status: f.status.value,
-        priority: f.priority.value,
-        due_date: f.due_date.value,
-        progress: +f.progress.value || 0
-      });
-      f.reset();
-      toast("Task added");
-      loadTasks();
-    }
-
-    async function editTask(id){
-      const t = await http(`/tasks/${id}`);
-      const f = document.getElementById("task-edit-form");
-      f.tid.value = id;
-      f.title.value = t.title;
-      f.description.value = t.description || "";
-      f.status.value = t.status || "todo";
-      f.priority.value = t.priority || "Normal";
-      f.due_date.value = t.due_date || "";
-      f.progress.value = t.progress || 0;
-      document.getElementById("task-modal").classList.remove("hidden");
-    }
-
-    async function submitEditTask(e){
-      e.preventDefault();
-      const f = e.target;
-      await http(`/tasks/${f.tid.value}`,"PUT",{
-        title: f.title.value,
-        description: f.description.value,
-        status: f.status.value,
-        priority: f.priority.value,
-        due_date: f.due_date.value,
-        progress: +f.progress.value || 0
-      });
-      document.getElementById("task-modal").classList.add("hidden");
-      toast("Task updated");
-      loadTasks();
-    }
-
-    async function deleteTask(id){
-      if (!confirm("Delete task?")) return;
-      await http(`/tasks/${id}`,"DELETE");
-      toast("Task deleted");
-      loadTasks();
-    }
-
-    // ---------- Comments ----------
-    async function openComments(tid){
-      document.getElementById("comments-panel").classList.remove("hidden");
-      document.getElementById("comment-form").tid.value = tid;
-      loadComments(tid);
-      switchTab("tasks");
-    }
-
-    async function loadComments(tid){
-      const box = document.getElementById("comments");
-      box.innerHTML = "";
-      const rows = await http(`/tasks/${tid}/comments`);
-      rows.forEach(c => {
-        const div = document.createElement("div");
-        div.className = "card";
-        div.innerHTML = `<div>${c.body}</div><div class="small">comment #${c.id}</div>`;
-        box.appendChild(div);
-      });
-    }
-
-    async function addComment(e){
-      e.preventDefault();
-      const f = e.target;
-      await http(`/tasks/${f.tid.value}/comments`,"POST",{ body: f.body.value });
-      f.reset();
-      loadComments(f.tid.value);
-    }
-
-    // ---------- Team ----------
-    async function loadTeam(){
-      const list = document.getElementById("team-list");
-      list.innerHTML = "";
-      const rows = await http(`/projects/${currentProject}/team`);
-      rows.forEach(m => {
-        const d = document.createElement("div");
-        d.className = "card";
-        d.innerHTML = `
-          <div class="flex">
-            <div>User #${m.user_id}</div>
-            <span class="tag">${m.role}</span>
-            <span class="right"></span>
-            <button class="btn danger" onclick="removeMember(${m.id})">Remove</button>
-          </div>`;
-        list.appendChild(d);
-      });
-    }
-
-    async function addMember(e){
-      e.preventDefault();
-      const f = e.target;
-      await http(`/projects/${currentProject}/team`,"POST",{
-        user_id: +f.user_id.value, role: f.role.value
-      });
-      f.reset();
-      loadTeam();
-    }
-
-    async function removeMember(id){
-      await http(`/projects/${currentProject}/team/${id}`,"DELETE");
-      loadTeam();
-    }
-
-    // ---------- Files ----------
-    async function loadFiles(){
-      const tb = document.getElementById("files-rows");
-      tb.innerHTML = "";
-      const rows = await http(`/projects/${currentProject}/files`);
-      rows.forEach(f => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${f.filename}</td><td>${f.size} bytes</td>`;
-        tb.appendChild(tr);
-      });
-    }
-
-    async function uploadFile(e){
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const token = localStorage.getItem("token");
-      const r = await fetch(API + `/projects/${currentProject}/files`, {
-        method: "POST",
-        headers: token ? { Authorization: "Bearer " + token } : {},
-        body: fd
-      });
-      if (!r.ok) { alert(await r.text()); return; }
-      toast("File uploaded");
-      loadFiles();
-    }
-
-    // ---------- Activity ----------
-    async function loadActivity(){
-      const box = document.getElementById("activity");
-      box.innerHTML = "";
-      const rows = await http("/activity");
-      rows.forEach(a => {
-        const d = document.createElement("div");
-        d.className = "card";
-        d.innerHTML = `<div>${a.verb}</div><div class="small">${a.object_type} #${a.object_id} • project ${a.project_id || "—"}</div>`;
-        box.appendChild(d);
-      });
-    }
-  </script>
+/* Gantt (simple SVG-less bar rows) */
+function renderGantt(rows){
+  const holder=document.getElementById("gantt"); holder.innerHTML="";
+  if(!rows.length){ holder.innerHTML="<div class='small muted'>No tasks yet.</div>"; return; }
+  const parse = s=>s?new Date(s):null;
+  const dates = rows.map(r=>parse(r.due_date)||new Date());
+  const min = new Date(Math.min(...dates.map(d=>d.getTime())));
+  rows.forEach(t=>{
+    const row=document.createElement("div"); row.className="gantt-row";
+    const title=document.createElement("div"); title.className="gantt-title"; title.textContent=t.title;
+    const track=document.createElement("div"); track.className="gantt-track";
+    const due=parse(t.due_date)||new Date();
+    const start=parse(t.start_date)||new Date(due.getTime()-3*86400000);
+    const off=Math.max(0,Math.floor((start-min)/86400000))*40;
+    const width=Math.max(8,(Math.floor((due-start)/86400000)+1)*40);
+    const bar=document.createElement("div"); bar.className="gantt-bar"; bar.style.left=off+"px"; bar.style.width=width+"px";
+    track.appendChild(bar); row.appendChild(title); row.appendChild(track); holder.appendChild(row);
+  });
+}
+</script>
 </head>
 
 <body>
@@ -463,25 +316,23 @@
   <main class="content">
     <div id="notice" class="notice hidden"></div>
 
-    <!-- PROJECTS LIST PAGE -->
+    <!-- PROJECTS -->
     <section data-page="projects">
       <div class="h1">Projects</div>
 
       <div class="card">
         <form onsubmit="createProject(event)">
-          <div class="grid cols-3">
+          <div class="grid cols-4">
             <input name="title" placeholder="Project title" required>
             <input name="client" placeholder="Client">
-            <select name="status">
-              <option>Planning</option><option>In Progress</option><option>On Hold</option><option>Completed</option>
-            </select>
+            <select name="status"><option>Planning</option><option>In Progress</option><option>On Hold</option><option>Completed</option></select>
+            <select name="priority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select>
           </div>
           <div class="grid cols-3" style="margin-top:8px">
-            <select name="priority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select>
             <input name="start_date" type="date">
             <input name="end_date" type="date">
+            <input name="description" placeholder="Description">
           </div>
-          <textarea name="description" placeholder="Description" style="margin-top:8px;height:70px"></textarea>
           <div style="margin-top:8px"><button class="btn">Add Project</button></div>
         </form>
       </div>
@@ -489,13 +340,10 @@
       <div id="projects-list"></div>
     </section>
 
-    <!-- PROJECT WORKSPACE PAGE -->
+    <!-- PROJECT WORKSPACE -->
     <section data-page="project" class="hidden">
       <div class="flex">
-        <div>
-          <div class="h1" id="proj-title">Project</div>
-          <div class="muted" id="proj-meta">—</div>
-        </div>
+        <div><div class="h1" id="proj-title">Project</div><div class="muted" id="proj-meta">—</div></div>
         <span class="right"></span>
       </div>
 
@@ -517,10 +365,11 @@
         <div class="card">
           <div class="h1">Quick Add Task</div>
           <form onsubmit="addTask(event)">
-            <div class="grid cols-3">
+            <div class="grid cols-4">
               <input name="title" placeholder="Task title" required>
               <select name="status"><option>todo</option><option>doing</option><option>done</option></select>
               <select name="priority"><option>Low</option><option selected>Normal</option><option>High</option><option>Critical</option></select>
+              <input name="assignee" placeholder="Assignee user id (optional)">
             </div>
             <div class="grid cols-3" style="margin-top:8px">
               <input name="due_date" type="date">
@@ -533,11 +382,36 @@
       </div>
 
       <div class="pane hidden" id="pane-tasks">
-        <div class="card">
-          <table class="fixed">
+        <div class="view-switch">
+          <button class="btn active" data-v="list" onclick="setView('list')">List</button>
+          <button class="btn" data-v="board" onclick="setView('board')">Board</button>
+        </div>
+
+        <div class="filterbar card">
+          <input id="f-q" placeholder="Search title or description" oninput="renderTasks()">
+          <select id="f-status" onchange="renderTasks()">
+            <option value="any">Any status</option><option>todo</option><option>doing</option><option>done</option>
+          </select>
+          <select id="f-priority" onchange="renderTasks()">
+            <option value="any">Any priority</option><option>Low</option><option>Normal</option><option>High</option><option>Critical</option>
+          </select>
+          <input id="f-assignee" placeholder="Assignee user id" oninput="renderTasks()">
+        </div>
+
+        <div id="list-view" class="card">
+          <table>
             <thead><tr><th>Task</th><th>Status</th><th>Progress</th><th>Priority</th><th>Due</th><th>Actions</th></tr></thead>
             <tbody id="tasks-rows"></tbody>
           </table>
+        </div>
+
+        <div id="board-view" class="card hidden">
+          <div id="board" class="kanban"></div>
+        </div>
+
+        <div class="card">
+          <div class="h1">Timeline (Gantt)</div>
+          <div id="gantt" class="gantt"></div>
         </div>
 
         <div id="comments-panel" class="card hidden">
@@ -583,7 +457,7 @@
       </div>
     </section>
 
-    <!-- CRM PAGE -->
+    <!-- CRM -->
     <section data-page="crm" class="hidden">
       <div class="h1">CRM</div>
       <div class="card">
@@ -600,15 +474,12 @@
       </div>
     </section>
 
-    <!-- AUTH PAGES -->
+    <!-- AUTH -->
     <section data-page="login" class="hidden">
       <div class="h1">Login</div>
       <div class="card">
         <form onsubmit="doLogin(event)">
-          <div class="grid cols-2">
-            <input name="email" placeholder="Email">
-            <input type="password" name="password" placeholder="Password">
-          </div>
+          <div class="grid cols-2"><input name="email" placeholder="Email"><input type="password" name="password" placeholder="Password"></div>
           <div style="margin-top:8px"><button class="btn">Login</button></div>
         </form>
       </div>
@@ -618,10 +489,7 @@
       <div class="h1">Register</div>
       <div class="card">
         <form onsubmit="doRegister(event)">
-          <div class="grid cols-2">
-            <input name="email" placeholder="Email">
-            <input type="password" name="password" placeholder="Password">
-          </div>
+          <div class="grid cols-2"><input name="email" placeholder="Email"><input type="password" name="password" placeholder="Password"></div>
           <div style="margin-top:8px"><button class="btn alt">Create Account</button></div>
         </form>
       </div>
@@ -654,10 +522,11 @@
       <div class="h1">Edit Task</div>
       <form id="task-edit-form" onsubmit="submitEditTask(event)">
         <input type="hidden" name="tid">
-        <div class="grid cols-3">
+        <div class="grid cols-4">
           <input name="title" placeholder="Title" required>
           <select name="status"><option>todo</option><option>doing</option><option>done</option></select>
           <select name="priority"><option>Low</option><option>Normal</option><option>High</option><option>Critical</option></select>
+          <input name="assignee" placeholder="Assignee user id">
         </div>
         <div class="grid cols-3" style="margin-top:8px">
           <input name="due_date" type="date">
@@ -667,6 +536,18 @@
         <div style="margin-top:8px">
           <button class="btn">Save</button>
           <button type="button" class="btn muted" onclick="document.getElementById('task-modal').classList.add('hidden')">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="subtask-modal" class="card hidden">
+      <div class="h1">Add Subtask</div>
+      <form id="subtask-form" onsubmit="submitSubtask(event)">
+        <input type="hidden" name="parent_id">
+        <input name="title" placeholder="Subtask title" required style="margin-top:8px">
+        <div style="margin-top:8px">
+          <button class="btn">Add Subtask</button>
+          <button type="button" class="btn muted" onclick="document.getElementById('subtask-modal').classList.add('hidden')">Cancel</button>
         </div>
       </form>
     </div>
