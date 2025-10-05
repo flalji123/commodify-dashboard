@@ -1,61 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Commodify PM</title>
 
-<!DOCTYPE html><html><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Commodify PM</title>
-<link rel="stylesheet" href="style.css"/>
-<script src="config.js"></script>
-<script>
-const API=window.API_BASE; 
-function headers(auth=true){ const h={"Content-Type":"application/json"}; const t=localStorage.getItem("token"); if(auth&&t) h.Authorization="Bearer "+t; return h;}
-function http(p, m="GET", b=null, auth=true){ return fetch(API+p,{method:m, headers:headers(auth), body:b?JSON.stringify(b):null}).then(async r=>{if(!r.ok) throw new Error(await r.text()); return r.json();}); }
-function route(){ const p=(location.hash.replace("#/","")||"projects"); document.querySelectorAll("[data-page]").forEach(x=>x.classList.add("hidden")); const el=document.querySelector(`[data-page="${p}"]`); if(el) el.classList.remove("hidden"); document.querySelectorAll(".nav a").forEach(a=>a.classList.toggle("active", a.getAttribute("href")==="#/"+p)); if(p==="projects") loadProjects(); if(p.startsWith("project-")) openProject(p.split("-")[1]); if(p==="crm") loadCompanies(); }
-addEventListener("hashchange", route); addEventListener("load", route);
-function toast(msg){ const n=document.getElementById("notice"); n.textContent=msg; n.classList.remove("hidden"); setTimeout(()=>n.classList.add("hidden"),3500); }
-function logout(){ localStorage.removeItem("token"); toast("Logged out"); }
-// AUTH
-async function doRegister(e){e.preventDefault(); const r=await http("/auth/register","POST",{email:e.target.email.value,password:e.target.password.value},false); localStorage.setItem("token",r.access_token); location.hash="#/projects";}
-async function doLogin(e){e.preventDefault(); const r=await http("/auth/login","POST",{email:e.target.email.value,password:e.target.password.value},false); localStorage.setItem("token",r.access_token); location.hash="#/projects";}
-// CRM
-async function loadCompanies(){ const rows=await http("/companies"); const tb=document.getElementById("crm-rows"); tb.innerHTML=""; rows.forEach(c=>{const tr=document.createElement("tr"); tr.innerHTML=`<td>${c.name}</td><td>${c.country||""}</td><td><button class='btn danger' onclick='delCompany(${c.id})'>Delete</button></td>`; tb.appendChild(tr);}); }
-async function addCompany(e){e.preventDefault(); await http("/companies","POST",{name:e.target.name.value,country:e.target.country.value}); e.target.reset(); loadCompanies(); }
-async function delCompany(id){ await http(`/companies/${id}`,"DELETE"); loadCompanies(); }
-// PROJECTS LIST
-async function loadProjects(){ const list=document.getElementById("projects-list"); list.innerHTML=""; const rows=await http("/projects"); rows.forEach(p=>{ const li=document.createElement("div"); li.className="card"; li.innerHTML=`<div class="flex"><div><b>${p.title}</b><div class='small'>${p.client||""}</div></div><span class='right tag'>${p.status}</span></div><div class='small'>${p.start_date||"—"} → ${p.end_date||"—"} • Priority: ${p.priority}</div><div style='margin-top:8px'><button class='btn' onclick='location.hash="#/project-${p.id}"'>Open</button> <button class='btn muted' onclick='editProject(${p.id})'>Edit</button> <button class='btn danger' onclick='deleteProject(${p.id})'>Delete</button></div>`; list.appendChild(li);}); document.getElementById("count-projects").textContent=rows.length; }
-async function createProject(e){ e.preventDefault(); const f=e.target; await http("/projects","POST",{title:f.title.value,description:f.description.value,client:f.client.value,status:f.status.value,priority:f.priority.value,start_date:f.start_date.value,end_date:f.end_date.value}); f.reset(); toast("Project created"); loadProjects(); }
-async function editProject(id){ const p=await http(`/projects/${id}`); const f=document.getElementById("project-edit-form"); f.pid.value=id; f.title.value=p.title; f.description.value=p.description||""; f.client.value=p.client||""; f.status.value=p.status; f.priority.value=p.priority; f.start_date.value=p.start_date||""; f.end_date.value=p.end_date||""; document.getElementById("edit-modal").classList.remove("hidden"); }
-async function submitEditProject(e){ e.preventDefault(); const f=e.target; await http(`/projects/${f.pid.value}`,"PUT",{title:f.title.value,description:f.description.value,client:f.client.value,status:f.status.value,priority:f.priority.value,start_date:f.start_date.value,end_date:f.end_date.value}); document.getElementById("edit-modal").classList.add("hidden"); toast("Project updated"); loadProjects(); }
-async function deleteProject(id){ if(!confirm("Delete project?")) return; await http(`/projects/${id}`,"DELETE"); toast("Project deleted"); loadProjects(); }
-// PROJECT DETAIL
-let currentProject=0; 
-async function openProject(pid){ currentProject=+pid; const p=await http(`/projects/${pid}`); document.getElementById("proj-title").textContent=p.title; document.getElementById("proj-meta").textContent=`${p.client||"No client"} • ${p.status} • ${p.priority}`; document.querySelectorAll("[data-page]").forEach(x=>x.classList.add("hidden")); document.querySelector('[data-page="project"]').classList.remove("hidden"); switchTab('overview'); loadTasks(); loadTeam(); loadFiles(); loadActivity(); }
-// TABS
-function switchTab(t){ document.querySelectorAll(".tab").forEach(el=>el.classList.remove("active")); document.querySelectorAll(".pane").forEach(el=>el.classList.add("hidden")); document.getElementById("tab-"+t).classList.add("active"); document.getElementById("pane-"+t).classList.remove("hidden"); }
-// TASKS
-async function loadTasks(){ const rows=await http(`/projects/${currentProject}/tasks`); const tb=document.getElementById("tasks-rows"); tb.innerHTML=""; let open=0; rows.forEach(t=>{ if(t.status!=='done') open++; const tr=document.createElement("tr"); tr.innerHTML=`<td><b>${t.title}</b><br><span class='small'>${t.description||""}</span></td><td>${t.status}</td><td><div class='progress'><i style='width:${t.progress||0}%'></i></div><span class='small'>${t.progress||0}%</span></td><td>${t.priority}</td><td>${t.due_date||"—"}</td><td><button class='btn muted' onclick='editTask(${t.id})'>Edit</button> <button class='btn danger' onclick='deleteTask(${t.id})'>Delete</button> <button class='btn' onclick='openComments(${t.id})'>Comments</button></td>`; tb.appendChild(tr); }); document.getElementById("kpi-open").textContent=open; document.getElementById("kpi-total").textContent=rows.length; }
-async function addTask(e){ e.preventDefault(); const f=e.target; await http(`/projects/${currentProject}/tasks`,"POST",{title:f.title.value,description:f.description.value,status:f.status.value,priority:f.priority.value,due_date:f.due_date.value,progress:+f.progress.value||0}); f.reset(); toast("Task added"); loadTasks(); }
-async function editTask(id){ const t=await http(`/tasks/${id}`); const f=document.getElementById("task-edit-form"); f.tid.value=id; f.title.value=t.title; f.description.value=t.description||""; f.status.value=t.status||"todo"; f.priority.value=t.priority||"Normal"; f.due_date.value=t.due_date||""; f.progress.value=t.progress||0; document.getElementById("task-modal").classList.remove("hidden"); }
-async function submitEditTask(e){ e.preventDefault(); const f=e.target; await http(`/tasks/${f.tid.value}`,"PUT",{title:f.title.value,description:f.description.value,status:f.status.value,priority:f.priority.value,due_date:f.due_date.value,progress:+f.progress.value||0}); document.getElementById("task-modal").classList.add("hidden"); toast("Task updated"); loadTasks(); }
-async function deleteTask(id){ if(!confirm("Delete task?")) return; await http(`/tasks/${id}`,"DELETE"); toast("Task deleted"); loadTasks(); }
-// COMMENTS
-async function openComments(tid){ document.getElementById("comments-panel").classList.remove("hidden"); document.getElementById("comment-form").tid.value=tid; loadComments(tid); }
-async function loadComments(tid){ const box=document.getElementById("comments"); box.innerHTML=""; const rows=await http(`/tasks/${tid}/comments`); rows.forEach(c=>{ const div=document.createElement("div"); div.className="card"; div.innerHTML=`<div>${c.body}</div><div class='small'>comment #${c.id}</div>`; box.appendChild(div); }); }
-async function addComment(e){ e.preventDefault(); const f=e.target; await http(`/tasks/${f.tid.value}/comments`,"POST",{body:f.body.value}); f.reset(); loadComments(f.tid.value); }
-// TEAM
-async function loadTeam(){ const rows=await http(`/projects/${currentProject}/team`); const list=document.getElementById("team-list"); list.innerHTML=""; rows.forEach(m=>{ const d=document.createElement("div"); d.className="card"; d.innerHTML=`<div class='flex'><div>user #${m.user_id}</div><span class='tag'>${m.role}</span><span class='right'></span><button class='btn danger' onclick='removeMember(${m.id})'>Remove</button></div>`; list.appendChild(d); }); }
-async function addMember(e){ e.preventDefault(); const f=e.target; await http(`/projects/${currentProject}/team`,"POST",{user_id:+f.user_id.value, role:f.role.value}); f.reset(); loadTeam(); }
-async function removeMember(id){ await http(`/projects/${currentProject}/team/${id}`,"DELETE"); loadTeam(); }
-// FILES
-async function loadFiles(){ const tb=document.getElementById("files-rows"); tb.innerHTML=""; const rows=await http(`/projects/${currentProject}/files`); rows.forEach(f=>{ const tr=document.createElement("tr"); tr.innerHTML=`<td>${f.filename}</td><td>${f.size} bytes</td>`; tb.appendChild(tr); }); }
-async function uploadFile(e){ e.preventDefault(); const fd=new FormData(e.target); const token=localStorage.getItem("token"); const r=await fetch(API+`/projects/${currentProject}/files`,{method:"POST", headers: token?{Authorization:"Bearer "+token}:{}, body:fd}); if(!r.ok) {alert(await r.text()); return;} toast("File uploaded"); loadFiles(); }
-// ACTIVITY
-async function loadActivity(){ const rows=await http("/activity"); const box=document.getElementById("activity"); box.innerHTML=""; rows.forEach(a=>{ const d=document.createElement("div"); d.className="card"; d.innerHTML=`<div>${a.verb}</div><div class='small'>${a.object_type} #${a.object_id} • project ${a.project_id||"—"}</div>`; box.appendChild(d); }); }
-</script>
+  <!-- styles and API config -->
+  <link rel="stylesheet" href="style.css"/>
+  <script src="config.js"></script>
+
+  <script>
+    // =========================
+    // Global + HTTP helpers
+    // =========================
+    const API = window.API_BASE; // e.g. https://commodify-backend-1.onrender.com
+
+    function headers(auth = true){
+      const h = { "Content-Type": "application/json" };
+      const t = localStorage.getItem("token");
+      if (auth && t) h.Authorization = "Bearer " + t;
+      return h;
+    }
+
+    function http(path, method = "GET", body = null, auth = true){
+      return fetch(API + path, {
+        method, headers: headers(auth), body: body ? JSON.stringify(body) : null
+      }).then(async r => {
+        if (!r.ok) {
+          const msg = await r.text();
+          throw new Error(msg || `HTTP ${r.status}`);
+        }
+        return r.json();
+      });
+    }
+
+    function toast(msg){
+      const n = document.getElementById("notice");
+      if (!n) return;
+      n.textContent = msg;
+      n.classList.remove("hidden");
+      setTimeout(() => n.classList.add("hidden"), 3000);
+    }
+
+    function logout(){
+      localStorage.removeItem("token");
+      toast("Logged out");
+      location.hash = "#/login";
+    }
+
+    // =========================
+    // Router
+    // =========================
+    function route(){
+      // Supports: #/projects, #/crm, #/login, #/register, #/project-<id>
+      const raw  = location.hash.replace("#/", "");
+      const page = raw || "projects";
+
+      // hide all pages
+      document.querySelectorAll("[data-page]").forEach(el => el.classList.add("hidden"));
+
+      if (page.startsWith("project-")){
+        const pid = page.split("-")[1];
+        openProject(pid);     // <= defined later
+      } else {
+        const el = document.querySelector(`[data-page="${page}"]`);
+        if (el) el.classList.remove("hidden");
+        if (page === "projects") loadProjects(); // <= defined later
+        if (page === "crm")      loadCompanies(); // <= defined later
+      }
+
+      // highlight sidebar (keep "Projects" active when viewing a specific project)
+      const current = page.startsWith("project-") ? "projects" : page;
+      document.querySelectorAll(".nav a").forEach(a => {
+        a.classList.toggle("active", a.getAttribute("href") === "#/" + current);
+      });
+    }
+    window.addEventListener("hashchange", route);
+    window.addEventListener("load", route);
+
+    // =========================
+    // Auth
+    // =========================
+    async function doRegister(e){
+      e.preventDefault();
+      const r = await http("/auth/register","POST",{
+        email: e.target.email.value,
+        password: e.target.password.value
+      }, false);
+      localStorage.setItem("token", r.access_token);
+      location.hash = "#/projects";
+    }
+
+    async function doLogin(e){
+      e.preventDefault();
+      const r = await http("/auth/login","POST",{
+        email: e.target.email.value,
+        password: e.target.password.value
+      }, false);
+      localStorage.setItem("token", r.access_token);
+      location.hash = "#/projects";
+    }
+
+    // =========================
+    // CRM (basic)
+    // =========================
+    async function loadCompanies(){
+      let rows = [];
+      try { rows = await http("/companies"); }
+      catch { toast("Please log in first"); location.hash="#/login"; return; }
+
+      const tb = document.getElementById("crm-rows");
+      tb.innerHTML = "";
+      rows.forEach(c => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${c.name}</td>
+          <td>${c.country || ""}</td>
+          <td><button class="btn danger" onclick="delCompany(${c.id})">Delete</button></td>`;
+        tb.appendChild(tr);
+      });
+    }
+    async function addCompany(e){
+      e.preventDefault();
+      await http("/companies","POST",{
+        name: e.target.name.value, country: e.target.country.value
+      });
+      e.target.reset();
+      loadCompanies();
+    }
+    async function delCompany(id){
+      await http(`/companies/${id}`,"DELETE");
+      loadCompanies();
+    }
+
+    // =========================
+    // Projects (list + CRUD)
+    // =========================
+    async function loadProjects(){
+      const list = document.getElementById("projects-list");
+      list.innerHTML = "";
+
+      let rows = [];
+      try { rows = await http("/projects"); }
+      catch { toast("Please log in first"); location.hash="#/login"; return; }
+
+      if (!rows.length){
+        const empty = document.createElement("div");
+        empty.className = "card";
+        empty.innerHTML  = "<div class='muted'>No projects yet. Use the form above to add one.</div>";
+        list.appendChild(empty);
+        return;
+      }
+
+      rows.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `
+          <div class="flex">
+            <div>
+              <b>${p.title}</b>
+              <div class="small">${p.client || ""}</div>
+            </div>
+            <span class="right tag">${p.status}</span>
+          </div>
+          <div class="small" style="margin-top:6px">
+            ${p.start_date || "—"} → ${p.end_date || "—"} • Priority: ${p.priority}
+          </div>
+          <div style="margin-top:10px">
+            <button class="btn" onclick="location.hash='#/project-${p.id}'">Open</button>
+            <button class="btn muted" style="margin-left:6px" onclick="editProject(${p.id})">Edit</button>
+            <button class="btn danger" style="margin-left:6px" onclick="deleteProject(${p.id})">Delete</button>
+          </div>`;
+        list.appendChild(div);
+      });
+    }
+
+    async function createProject(e){
+      e.preventDefault();
+      const f = e.target;
+      await http("/projects","POST",{
+        title: f.title.value,
+        description: f.description.value,
+        client: f.client.value,
+        status: f.status.value,
+        priority: f.priority.value,
+        start_date: f.start_date.value,
+        end_date: f.end_date.value
+      });
+      f.reset();
+      toast("Project created");
+      loadProjects();
+    }
+
+    async function editProject(id){
+      const p = await http(`/projects/${id}`);
+      const f = document.getElementById("project-edit-form");
+      f.pid.value = id;
+      f.title.value = p.title;
+      f.description.value = p.description || "";
+      f.client.value = p.client || "";
+      f.status.value = p.status;
+      f.priority.value = p.priority;
+      f.start_date.value = p.start_date || "";
+      f.end_date.value = p.end_date || "";
+      document.getElementById("edit-modal").classList.remove("hidden");
+    }
+
+    async function submitEditProject(e){
+      e.preventDefault();
+      const f = e.target;
+      await http(`/projects/${f.pid.value}`,"PUT",{
+        title: f.title.value,
+        description: f.description.value,
+        client: f.client.value,
+        status: f.status.value,
+        priority: f.priority.value,
+        start_date: f.start_date.value,
+        end_date: f.end_date.value
+      });
+      document.getElementById("edit-modal").classList.add("hidden");
+      toast("Project updated");
+      loadProjects();
+    }
+
+    async function deleteProject(id){
+      if (!confirm("Delete project?")) return;
+      await http(`/projects/${id}`,"DELETE");
+      toast("Project deleted");
+      loadProjects();
+    }
+
+    // =========================
+    // Project workspace
+    // =========================
+    let currentProject = 0;
+
+    async function openProject(pid){
+      currentProject = +pid;
+
+      // Auth guard + fetch data
+      let p;
+      try { p = await http(`/projects/${pid}`); }
+      catch { toast("Please log in first"); location.hash="#/login"; return; }
+
+      // switch the visible page
+      document.querySelectorAll("[data-page]").forEach(el => el.classList.add("hidden"));
+      document.querySelector('[data-page="project"]').classList.remove("hidden");
+
+      // header
+      document.getElementById("proj-title").textContent = p.title;
+      document.getElementById("proj-meta").textContent =
+        `${p.client || "No client"} • ${p.status} • ${p.priority}`;
+
+      // default tab + data loads
+      switchTab("overview");
+      loadTasks();
+      loadTeam();
+      loadFiles();
+      loadActivity();
+    }
+
+    function switchTab(t){
+      document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
+      document.querySelectorAll(".pane").forEach(el => el.classList.add("hidden"));
+      document.getElementById("tab-" + t).classList.add("active");
+      document.getElementById("pane-" + t).classList.remove("hidden");
+    }
+
+    // ---------- Tasks ----------
+    async function loadTasks(){
+      const tb = document.getElementById("tasks-rows");
+      tb.innerHTML = "";
+      const rows = await http(`/projects/${currentProject}/tasks`);
+      let open = 0;
+      rows.forEach(t => {
+        if (t.status !== "done") open++;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><b>${t.title}</b><br><span class="small">${t.description || ""}</span></td>
+          <td>${t.status}</td>
+          <td><div class="progress"><i style="width:${t.progress || 0}%"></i></div><span class="small">${t.progress || 0}%</span></td>
+          <td>${t.priority}</td>
+          <td>${t.due_date || ""}</td>
+          <td>
+            <button class="btn" onclick="editTask(${t.id})">Edit</button>
+            <button class="btn" style="margin-left:6px" onclick="openComments(${t.id})">Comments</button>
+            <button class="btn danger" style="margin-left:6px" onclick="deleteTask(${t.id})">Delete</button>
+          </td>`;
+        tb.appendChild(tr);
+      });
+      document.getElementById("kpi-open").textContent  = open;
+      document.getElementById("kpi-total").textContent = rows.length;
+    }
+
+    async function addTask(e){
+      e.preventDefault();
+      const f = e.target;
+      await http(`/projects/${currentProject}/tasks`,"POST",{
+        title: f.title.value,
+        description: f.description.value,
+        status: f.status.value,
+        priority: f.priority.value,
+        due_date: f.due_date.value,
+        progress: +f.progress.value || 0
+      });
+      f.reset();
+      toast("Task added");
+      loadTasks();
+    }
+
+    async function editTask(id){
+      const t = await http(`/tasks/${id}`);
+      const f = document.getElementById("task-edit-form");
+      f.tid.value = id;
+      f.title.value = t.title;
+      f.description.value = t.description || "";
+      f.status.value = t.status || "todo";
+      f.priority.value = t.priority || "Normal";
+      f.due_date.value = t.due_date || "";
+      f.progress.value = t.progress || 0;
+      document.getElementById("task-modal").classList.remove("hidden");
+    }
+
+    async function submitEditTask(e){
+      e.preventDefault();
+      const f = e.target;
+      await http(`/tasks/${f.tid.value}`,"PUT",{
+        title: f.title.value,
+        description: f.description.value,
+        status: f.status.value,
+        priority: f.priority.value,
+        due_date: f.due_date.value,
+        progress: +f.progress.value || 0
+      });
+      document.getElementById("task-modal").classList.add("hidden");
+      toast("Task updated");
+      loadTasks();
+    }
+
+    async function deleteTask(id){
+      if (!confirm("Delete task?")) return;
+      await http(`/tasks/${id}`,"DELETE");
+      toast("Task deleted");
+      loadTasks();
+    }
+
+    // ---------- Comments ----------
+    async function openComments(tid){
+      document.getElementById("comments-panel").classList.remove("hidden");
+      document.getElementById("comment-form").tid.value = tid;
+      loadComments(tid);
+      switchTab("tasks");
+    }
+
+    async function loadComments(tid){
+      const box = document.getElementById("comments");
+      box.innerHTML = "";
+      const rows = await http(`/tasks/${tid}/comments`);
+      rows.forEach(c => {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `<div>${c.body}</div><div class="small">comment #${c.id}</div>`;
+        box.appendChild(div);
+      });
+    }
+
+    async function addComment(e){
+      e.preventDefault();
+      const f = e.target;
+      await http(`/tasks/${f.tid.value}/comments`,"POST",{ body: f.body.value });
+      f.reset();
+      loadComments(f.tid.value);
+    }
+
+    // ---------- Team ----------
+    async function loadTeam(){
+      const list = document.getElementById("team-list");
+      list.innerHTML = "";
+      const rows = await http(`/projects/${currentProject}/team`);
+      rows.forEach(m => {
+        const d = document.createElement("div");
+        d.className = "card";
+        d.innerHTML = `
+          <div class="flex">
+            <div>User #${m.user_id}</div>
+            <span class="tag">${m.role}</span>
+            <span class="right"></span>
+            <button class="btn danger" onclick="removeMember(${m.id})">Remove</button>
+          </div>`;
+        list.appendChild(d);
+      });
+    }
+
+    async function addMember(e){
+      e.preventDefault();
+      const f = e.target;
+      await http(`/projects/${currentProject}/team`,"POST",{
+        user_id: +f.user_id.value, role: f.role.value
+      });
+      f.reset();
+      loadTeam();
+    }
+
+    async function removeMember(id){
+      await http(`/projects/${currentProject}/team/${id}`,"DELETE");
+      loadTeam();
+    }
+
+    // ---------- Files ----------
+    async function loadFiles(){
+      const tb = document.getElementById("files-rows");
+      tb.innerHTML = "";
+      const rows = await http(`/projects/${currentProject}/files`);
+      rows.forEach(f => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${f.filename}</td><td>${f.size} bytes</td>`;
+        tb.appendChild(tr);
+      });
+    }
+
+    async function uploadFile(e){
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const token = localStorage.getItem("token");
+      const r = await fetch(API + `/projects/${currentProject}/files`, {
+        method: "POST",
+        headers: token ? { Authorization: "Bearer " + token } : {},
+        body: fd
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      toast("File uploaded");
+      loadFiles();
+    }
+
+    // ---------- Activity ----------
+    async function loadActivity(){
+      const box = document.getElementById("activity");
+      box.innerHTML = "";
+      const rows = await http("/activity");
+      rows.forEach(a => {
+        const d = document.createElement("div");
+        d.className = "card";
+        d.innerHTML = `<div>${a.verb}</div><div class="small">${a.object_type} #${a.object_id} • project ${a.project_id || "—"}</div>`;
+        box.appendChild(d);
+      });
+    }
+  </script>
 </head>
+
 <body>
   <aside class="sidebar">
     <div class="brand">Commodify</div>
     <nav class="nav">
-      <a href="#/projects">Projects</a>
+      <a href="#/projects" class="active">Projects</a>
       <a href="#/crm">CRM</a>
       <a href="#/login">Login</a>
       <a href="#/register">Register</a>
@@ -66,14 +463,18 @@ async function loadActivity(){ const rows=await http("/activity"); const box=doc
   <main class="content">
     <div id="notice" class="notice hidden"></div>
 
-    <section data-page="projects" class="">
-      <div class="flex"><div class="h1">Projects</div><span class="right"></span></div>
+    <!-- PROJECTS LIST PAGE -->
+    <section data-page="projects">
+      <div class="h1">Projects</div>
+
       <div class="card">
         <form onsubmit="createProject(event)">
           <div class="grid cols-3">
             <input name="title" placeholder="Project title" required>
             <input name="client" placeholder="Client">
-            <select name="status"><option>Planning</option><option>In Progress</option><option>On Hold</option><option>Completed</option></select>
+            <select name="status">
+              <option>Planning</option><option>In Progress</option><option>On Hold</option><option>Completed</option>
+            </select>
           </div>
           <div class="grid cols-3" style="margin-top:8px">
             <select name="priority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select>
@@ -84,11 +485,20 @@ async function loadActivity(){ const rows=await http("/activity"); const box=doc
           <div style="margin-top:8px"><button class="btn">Add Project</button></div>
         </form>
       </div>
+
       <div id="projects-list"></div>
     </section>
 
+    <!-- PROJECT WORKSPACE PAGE -->
     <section data-page="project" class="hidden">
-      <div class="flex"><div><div class="h1" id="proj-title">Project</div><div class="muted" id="proj-meta">—</div></div><span class="right"></span></div>
+      <div class="flex">
+        <div>
+          <div class="h1" id="proj-title">Project</div>
+          <div class="muted" id="proj-meta">—</div>
+        </div>
+        <span class="right"></span>
+      </div>
+
       <div class="tabs">
         <div class="tab active" id="tab-overview" onclick="switchTab('overview')">Overview</div>
         <div class="tab" id="tab-tasks" onclick="switchTab('tasks')">Tasks</div>
@@ -103,6 +513,7 @@ async function loadActivity(){ const rows=await http("/activity"); const box=doc
           <div class="card"><div class="muted">Total Tasks</div><div class="h1" id="kpi-total">—</div></div>
           <div class="card"><div class="muted">Status</div><div class="h1" id="kpi-status">Live</div></div>
         </div>
+
         <div class="card">
           <div class="h1">Quick Add Task</div>
           <form onsubmit="addTask(event)">
@@ -128,6 +539,7 @@ async function loadActivity(){ const rows=await http("/activity"); const box=doc
             <tbody id="tasks-rows"></tbody>
           </table>
         </div>
+
         <div id="comments-panel" class="card hidden">
           <div class="h1">Comments</div>
           <form id="comment-form" onsubmit="addComment(event)">
@@ -171,21 +583,51 @@ async function loadActivity(){ const rows=await http("/activity"); const box=doc
       </div>
     </section>
 
+    <!-- CRM PAGE -->
     <section data-page="crm" class="hidden">
       <div class="h1">CRM</div>
-      <div class="card"><form onsubmit="addCompany(event)"><div class="grid cols-2"><input name="name" placeholder="Company name"><input name="country" placeholder="Country"></div><div style="margin-top:8px"><button class="btn">Add Company</button></div></form></div>
-      <div class="card"><table><thead><tr><th>Name</th><th>Country</th><th></th></tr></thead><tbody id="crm-rows"></tbody></table></div>
+      <div class="card">
+        <form onsubmit="addCompany(event)">
+          <div class="grid cols-2">
+            <input name="name" placeholder="Company name">
+            <input name="country" placeholder="Country">
+          </div>
+          <div style="margin-top:8px"><button class="btn">Add Company</button></div>
+        </form>
+      </div>
+      <div class="card">
+        <table><thead><tr><th>Name</th><th>Country</th><th></th></tr></thead><tbody id="crm-rows"></tbody></table>
+      </div>
     </section>
 
+    <!-- AUTH PAGES -->
     <section data-page="login" class="hidden">
       <div class="h1">Login</div>
-      <div class="card"><form onsubmit="doLogin(event)"><div class="grid cols-2"><input name="email" placeholder="Email"><input type="password" name="password" placeholder="Password"></div><div style="margin-top:8px"><button class="btn">Login</button></div></form></div>
-    </section>
-    <section data-page="register" class="hidden">
-      <div class="h1">Register</div>
-      <div class="card"><form onsubmit="doRegister(event)"><div class="grid cols-2"><input name="email" placeholder="Email"><input type="password" name="password" placeholder="Password"></div><div style="margin-top:8px"><button class="btn alt">Create Account</button></div></form></div>
+      <div class="card">
+        <form onsubmit="doLogin(event)">
+          <div class="grid cols-2">
+            <input name="email" placeholder="Email">
+            <input type="password" name="password" placeholder="Password">
+          </div>
+          <div style="margin-top:8px"><button class="btn">Login</button></div>
+        </form>
+      </div>
     </section>
 
+    <section data-page="register" class="hidden">
+      <div class="h1">Register</div>
+      <div class="card">
+        <form onsubmit="doRegister(event)">
+          <div class="grid cols-2">
+            <input name="email" placeholder="Email">
+            <input type="password" name="password" placeholder="Password">
+          </div>
+          <div style="margin-top:8px"><button class="btn alt">Create Account</button></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- EDIT MODALS -->
     <div id="edit-modal" class="card hidden">
       <div class="h1">Edit Project</div>
       <form id="project-edit-form" onsubmit="submitEditProject(event)">
@@ -201,7 +643,10 @@ async function loadActivity(){ const rows=await http("/activity"); const box=doc
           <input name="end_date" type="date">
         </div>
         <textarea name="description" placeholder="Description" style="margin-top:8px;height:70px"></textarea>
-        <div style="margin-top:8px"><button class="btn">Save</button> <button type="button" class="btn muted" onclick="document.getElementById('edit-modal').classList.add('hidden')">Cancel</button></div>
+        <div style="margin-top:8px">
+          <button class="btn">Save</button>
+          <button type="button" class="btn muted" onclick="document.getElementById('edit-modal').classList.add('hidden')">Cancel</button>
+        </div>
       </form>
     </div>
 
@@ -219,8 +664,13 @@ async function loadActivity(){ const rows=await http("/activity"); const box=doc
           <input name="progress" type="number" min="0" max="100">
           <input name="description" placeholder="Description">
         </div>
-        <div style="margin-top:8px"><button class="btn">Save</button> <button type="button" class="btn muted" onclick="document.getElementById('task-modal').classList.add('hidden')">Cancel</button></div>
+        <div style="margin-top:8px">
+          <button class="btn">Save</button>
+          <button type="button" class="btn muted" onclick="document.getElementById('task-modal').classList.add('hidden')">Cancel</button>
+        </div>
       </form>
     </div>
+
   </main>
-</body></html>
+</body>
+</html>
