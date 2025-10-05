@@ -1,24 +1,192 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Commodify Dashboard</title>
-  <link rel="stylesheet" href="style.css" />
+
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Commodify Dashboard</title>
+<link rel="stylesheet" href="style.css"/>
+<script src="config.js"></script>
+<script>
+function api(path, method="GET", body=null, auth=true){
+  const base = window.API_BASE || "";
+  if(!base){ alert("API not configured"); throw new Error("API_BASE not set"); }
+  const headers={"Content-Type":"application/json"};
+  const token=localStorage.getItem("token"); if(auth && token) headers["Authorization"]="Bearer "+token;
+  return fetch(base+path,{method, headers, body: body?JSON.stringify(body):null}).then(async res=>{
+    if(!res.ok){ const t=await res.text(); throw new Error(t||("HTTP "+res.status)); } return res.json();
+  });
+}
+function route(){
+  const page=(location.hash.replace("#/","")||"dashboard");
+  document.querySelectorAll("[data-page]").forEach(el=>el.classList.add("hidden"));
+  const el=document.querySelector(`[data-page="${page}"]`); if(el) el.classList.remove("hidden");
+  document.querySelectorAll(".nav a").forEach(a=>a.classList.toggle("active", a.getAttribute("href")==="#/"+page));
+  if(page==="projects") loadTasks();
+  if(page==="crm") loadCompanies();
+}
+addEventListener("hashchange", route); addEventListener("load", route);
+
+async function doRegister(e){ e.preventDefault();
+  const r=await api("/auth/register","POST",{email:e.target.email.value.trim(), password:e.target.password.value}, false);
+  localStorage.setItem("token", r.access_token); location.hash="#/dashboard";
+}
+async function doLogin(e){ e.preventDefault();
+  const r=await api("/auth/login","POST",{email:e.target.email.value.trim(), password:e.target.password.value}, false);
+  localStorage.setItem("token", r.access_token); location.hash="#/dashboard";
+}
+function logout(){ localStorage.removeItem("token"); alert("Logged out"); }
+
+async function loadCompanies(){
+  try{
+    const rows=await api("/companies");
+    const tbody=document.getElementById("crm-rows"); tbody.innerHTML="";
+    rows.forEach(c=>{
+      const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${c.name}</td><td>${c.country||""}</td>
+        <td><button class="btn danger" onclick="delCompany(${c.id})">Delete</button></td>`;
+      tbody.appendChild(tr);
+    });
+    document.getElementById("kpi-companies").textContent=rows.length;
+  }catch(err){ showErr(err); }
+}
+async function addCompany(e){ e.preventDefault();
+  const name=e.target.name.value.trim(), country=e.target.country.value.trim();
+  if(!name) return; await api("/companies","POST",{name,country}); e.target.reset(); loadCompanies();
+}
+async function delCompany(id){ await api(`/companies/${id}`,"DELETE"); loadCompanies(); }
+
+async function loadTasks(){
+  try{
+    const rows=await api("/tasks"); renderTaskCols(rows);
+  }catch(err){ showErr(err); }
+}
+function renderTaskCols(rows){
+  const by={todo:[],doing:[],done:[]}; rows.forEach(t=>by[t.status||"todo"].push(t));
+  ["todo","doing","done"].forEach(list=>{
+    const box=document.getElementById("col-"+list); box.innerHTML="";
+    by[list].forEach(t=>{
+      const div=document.createElement("div"); div.className="task";
+      div.innerHTML=`<div>${t.title}</div>
+        <div style='margin-top:8px'>
+        ${list!=="todo"?`<button class="btn" onclick="moveTask(${t.id},'${list}','back')">◀</button>`:""}
+        ${list!=="done"?`<button class="btn" onclick="moveTask(${t.id},'${list}','forward')" style="margin-left:6px">▶</button>`:""}
+        <button class="btn danger" style="margin-left:6px" onclick="delTask(${t.id})">Delete</button>
+        </div>`;
+      box.appendChild(div);
+    });
+  });
+}
+async function addTask(e,list){ e.preventDefault();
+  const title=e.target.title.value.trim(); if(!title) return;
+  await api("/tasks","POST",{title,status:list}); e.target.reset(); loadTasks();
+}
+async function moveTask(id, from, dir){
+  const order=["todo","doing","done"]; let i=order.indexOf(from)+(dir==="forward"?1:-1);
+  i=Math.max(0,Math.min(order.length-1,i)); const status=order[i];
+  await api(`/tasks/${id}`,"PUT",{title:"",status}); loadTasks();
+}
+async function delTask(id){ await api(`/tasks/${id}`,"DELETE"); loadTasks(); }
+
+async function runDD(e){ e.preventDefault();
+  const name=e.target.ddname.value.trim(), country=e.target.ddcountry.value;
+  if(!name) return;
+  const res=await api("/duediligence","POST",{name,country});
+  document.getElementById("dd-output").innerHTML=`
+    <div class="card"><div class="h1" style="margin:0 0 6px">Risk score: ${res.risk_score}/100</div>
+    <div class="muted">Company: <b>${res.name}</b> • Country: <b>${res.country||"N/A"}</b></div>
+    <div class="muted" style="margin-top:8px">Flags: ${(res.flags||[]).join(", ")}</div></div>`;
+  document.getElementById("kpi-dd").textContent = res.risk_score;
+}
+
+function showErr(err){
+  const box=document.getElementById("error-box");
+  box.textContent = (err && err.message) ? err.message : String(err);
+  box.classList.remove("hidden");
+  setTimeout(()=>box.classList.add("hidden"), 6000);
+}
+</script>
 </head>
 <body>
-  <div class="sidebar">
-    <h2>Commodify</h2>
-    <ul>
-      <li><a href="#">Dashboard</a></li>
-      <li><a href="#">Projects</a></li>
-      <li><a href="#">CRM</a></li>
-      <li><a href="#">Due Diligence</a></li>
-    </ul>
-  </div>
-  <div class="content">
-    <h1>Welcome to Commodify CRM & Project Dashboard</h1>
-    <p>Sidebar, navigation and theming in place. Backend integration next.</p>
-  </div>
-</body>
-</html>
+  <aside class="sidebar">
+    <div class="brand">Commodify</div>
+    <nav class="nav">
+      <a href="#/dashboard">Dashboard</a>
+      <a href="#/projects">Projects</a>
+      <a href="#/crm">CRM</a>
+      <a href="#/duediligence">Due Diligence</a>
+      <a href="#/login">Login</a>
+      <a href="#/register">Register</a>
+      <a href="javascript:logout()">Logout</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <div id="error-box" class="notice hidden"></div>
+
+    <section data-page="dashboard">
+      <div class="topbar"><div class="h1">Dashboard</div><div class="muted">Register/Login, then use CRM/Projects/DD.</div></div>
+      <div class="grid cols-3">
+        <div class="card"><div class="muted">Companies</div><div class="h1" id="kpi-companies">—</div></div>
+        <div class="card"><div class="muted">Tasks</div><div class="h1" id="kpi-tasks">—</div></div>
+        <div class="card"><div class="muted">Last DD Score</div><div class="h1" id="kpi-dd">—</div></div>
+      </div>
+    </section>
+
+    <section data-page="projects" class="hidden">
+      <div class="h1">Projects</div>
+      <div class="grid cols-3">
+        <div class="card"><h3>To Do</h3>
+          <form onsubmit="addTask(event,'todo')"><input name="title" placeholder="New task…"><div style="margin-top:8px"><button class="btn">Add</button></div></form>
+          <div id="col-todo"></div>
+        </div>
+        <div class="card"><h3>In Progress</h3>
+          <form onsubmit="addTask(event,'doing')"><input name="title" placeholder="New task…"><div style="margin-top:8px"><button class="btn">Add</button></div></form>
+          <div id="col-doing"></div>
+        </div>
+        <div class="card"><h3>Done</h3>
+          <form onsubmit="addTask(event,'done')"><input name="title" placeholder="New task…"><div style="margin-top:8px"><button class="btn">Add</button></div></form>
+          <div id="col-done"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-page="crm" class="hidden">
+      <div class="h1">CRM</div>
+      <div class="card">
+        <form onsubmit="addCompany(event)">
+          <div class="grid cols-2"><input name="name" placeholder="Company name"><input name="country" placeholder="Country"></div>
+          <div style="margin-top:10px"><button class="btn">Add Company</button></div>
+        </form>
+      </div>
+      <div class="card">
+        <table><thead><tr><th>Name</th><th>Country</th><th></th></tr></thead><tbody id="crm-rows"></tbody></table>
+      </div>
+    </section>
+
+    <section data-page="duediligence" class="hidden">
+      <div class="h1">Due Diligence</div>
+      <div class="card">
+        <form onsubmit="runDD(event)">
+          <div class="grid cols-2"><input name="ddname" placeholder="Company name"><select name="ddcountry">
+            <option value="">Country</option><option>UAE</option><option>UK</option><option>USA</option><option>South Africa</option><option>Kazakhstan</option>
+          </select></div>
+          <div style="margin-top:10px"><button class="btn">Run Checks</button></div>
+        </form>
+      </div>
+      <div id="dd-output"></div>
+    </section>
+
+    <section data-page="login" class="hidden">
+      <div class="h1">Login</div>
+      <div class="card"><form onsubmit="doLogin(event)">
+        <div class="grid cols-2"><input name="email" placeholder="Email"><input type="password" name="password" placeholder="Password"></div>
+        <div style="margin-top:10px"><button class="btn">Login</button></div>
+      </form></div>
+    </section>
+    <section data-page="register" class="hidden">
+      <div class="h1">Register</div>
+      <div class="card"><form onsubmit="doRegister(event)">
+        <div class="grid cols-2"><input name="email" placeholder="Email"><input type="password" name="password" placeholder="Password"></div>
+        <div style="margin-top:10px"><button class="btn alt">Create Account</button></div>
+      </form></div>
+    </section>
+  </main>
+</body></html>

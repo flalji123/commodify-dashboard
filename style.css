@@ -1,37 +1,18 @@
 
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  background: #f5f5f5;
-  color: #222;
-  display: flex;
-}
-
-.sidebar {
-  width: 200px;
-  background: #111;
-  color: white;
-  height: 100vh;
-  padding: 20px;
-}
-
-.sidebar h2 {
-  margin-top: 0;
-}
-
-.sidebar ul {
-  list-style: none;
-  padding: 0;
-}
-
-.sidebar ul li a {
-  color: white;
-  text-decoration: none;
-  display: block;
-  padding: 8px 0;
-}
-
-.content {
-  flex: 1;
-  padding: 40px;
-}
+:root{--bg:#f5f7fb;--fg:#101318;--card:#fff;--muted:#6b7280;--primary:#0d6efd}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:var(--bg);color:var(--fg);display:flex;min-height:100vh}
+.sidebar{width:240px;background:#0b0c0f;color:#fff;padding:24px 18px;position:sticky;top:0;height:100vh}
+.brand{font-weight:800;font-size:20px;margin-bottom:18px}
+.nav a{display:block;padding:10px 12px;margin:6px 0;color:#dfe3ea;text-decoration:none;border-radius:10px}
+.nav a.active,.nav a:hover{background:#1a1b1f;color:#fff}
+.content{flex:1;padding:28px;max-width:1200px;margin:0 auto}
+.card{background:var(--card);border:1px solid #e6e7eb;border-radius:16px;padding:18px;margin-bottom:18px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.h1{font-size:28px;font-weight:800;margin:0 0 14px}.muted{color:var(--muted);font-size:14px}
+.grid{display:grid;gap:14px}.cols-2{grid-template-columns:1fr 1fr}.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.btn{background:var(--primary);color:#fff;border:0;padding:10px 14px;border-radius:10px;cursor:pointer}
+.btn.alt{background:#10b981}.btn.danger{background:#dc3545}
+input,select{width:100%;padding:10px 12px;border:1px solid #e4e6ea;border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:10px 12px;border-bottom:1px solid #eee}
+.kanban{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.task{background:#fff;border:1px solid #eee;border-radius:12px;padding:12px;margin:8px 0}
+.hidden{display:none}.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.notice{padding:10px 12px;border-radius:10px;background:#fff3cd;border:1px solid #ffe69c;color:#775600}
